@@ -3,37 +3,54 @@ import mediapipe as mp
 import cv2
 import PoseTrackingModule as ptm
 import math
-#import pyttsx3
+import streamlit as st
 
-cap = cv2.VideoCapture(0)  # Open the webcam
-detector = ptm.poseDetector()  # Assuming poseDetector is defined in HandTrackingModule
+# Initialize Streamlit app
+st.title("Welcome to Pain2Gain")
+frame_placeHolder = st.empty()
+
+# Add "X" and "✓" buttons for controlling the camera
+terminate_button = st.button("❌ Stop Camera")
+start_button = st.button("✅ Start Camera")
+
+# Initialize variables
+detector = ptm.poseDetector()  # Assuming poseDetector is defined in PoseTrackingModule
 stagePushups = 'None'
 stageSitups = 'None'
 stageSquats = 'None'
-
 counterPushups = 0
 counterSitups = 0
-counterLunges = 0
 counterSquats = 0
-
 maxDistPushups = 0
 maxDistSitups = 0
 maxDistSquats = 0
-maxDistThrottle = 0
 
-while True:
+# Main logic to handle the camera stream based on button inputs
+cap = None  # Initialize the capture object outside the loop
+
+# Run only if the start button is pressed
+if start_button:
+    cap = cv2.VideoCapture(0)  # Open the webcam
+
+while cap and cap.isOpened():
+    # Check if the stop button is pressed
+    if terminate_button:
+        cap.release()  # Stop the camera feed
+        break
+
     success, img = cap.read()
+    if not success:
+        st.warning("No camera detected. Please connect your camera.")
+        break
+
     img = detector.findPose(img)
-    lmList = detector.lmPosition(img) if detector.results.pose_landmarks else []  # Safeguard for pose landmarks
+    lmList = detector.lmPosition(img) if detector.results.pose_landmarks else []
+
     if lmList:
-        # Body slope detection
+        # Extract landmark positions and calculate required distances and angles
         x1Eye, y1Eye = lmList[1][1], lmList[1][2]
         x2Hand, y2Hand = lmList[20][1], lmList[20][2]
-        handAbove = True;
-        if(abs(y2Hand) > abs(y1Eye)):
-            handAbove = False;
-        else:
-            handAbove = True;
+        handAbove = y2Hand < y1Eye
 
         x1Shoulder, y1Shoulder = lmList[11][1], lmList[11][2]
         x2Toe, y2Toe = lmList[27][1], lmList[27][2]
@@ -46,15 +63,13 @@ while True:
 
         if distancePushups > maxDistPushups:
             maxDistPushups = distancePushups
-
         normalDistancePushups = distancePushups / maxDistPushups if maxDistPushups != 0 else 0
 
-        if normalDistancePushups < 0.4 and handAbove == False:
+        if normalDistancePushups < 0.4 and not handAbove:
             stagePushups = "down"
-        if normalDistancePushups > 0.6 and stagePushups == "down" and abs(slope) < 0.6 and handAbove == False:
+        if normalDistancePushups > 0.6 and stagePushups == "down" and abs(slope) < 0.6 and not handAbove:
             stagePushups = "up"
             counterPushups += 1
-            #text_speech.say("A pushup")
 
         # Situps detection logic
         x1Situps, y1Situps = lmList[0][1], lmList[0][2]
@@ -63,12 +78,11 @@ while True:
 
         if distanceSitups > maxDistSitups:
             maxDistSitups = distanceSitups
-
         normalDistanceSitups = distanceSitups / maxDistSitups if maxDistSitups != 0 else 0
 
-        if normalDistanceSitups > 0.8 and handAbove == False:
+        if normalDistanceSitups > 0.8 and not handAbove:
             stageSitups = "down"
-        if normalDistanceSitups < 0.6 and stageSitups == "down" and abs(slope) < 4 and handAbove==False:
+        if normalDistanceSitups < 0.6 and stageSitups == "down" and abs(slope) < 4 and not handAbove:
             stageSitups = "up"
             counterSitups += 1
 
@@ -79,27 +93,25 @@ while True:
 
         if yDistSquats > maxDistSquats:
             maxDistSquats = yDistSquats
-
         normalDistanceSquats = yDistSquats / maxDistSquats if maxDistSquats != 0 else 0
-        if normalDistanceSquats < 0.4 and handAbove == False and abs(slope) > 6 :
+
+        if normalDistanceSquats < 0.4 and not handAbove and abs(slope) > 6:
             stageSquats = "down"
-        if normalDistanceSquats > 0.65 and stageSquats == "down" and abs(slope) > 1 and handAbove == False:
+        if normalDistanceSquats > 0.65 and stageSquats == "down" and abs(slope) > 1 and not handAbove:
             stageSquats = "up"
             counterSquats += 1
 
-        # Display and visualization
+        # Overlay information on image
         cv2.line(img, (x1Shoulder, y1Shoulder), (x2Toe, y2Toe), (0, 255, 0), 4)
+        cv2.putText(img, "Pushups: " + str(counterPushups), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.putText(img, "Situps: " + str(counterSitups), (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.putText(img, "Squats: " + str(counterSquats), (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    # Display counter and throttle distance
-    cv2.putText(img, "Pushups: " + str(counterPushups), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    cv2.putText(img, "Slope: " + str(abs(slope)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    cv2.putText(img, "Situps: " + str(counterSitups), (200, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    cv2.putText(img, "Squats: " + str(counterSquats), (300, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    # Convert the image color from BGR to RGB for Streamlit display
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    frame_placeHolder.image(img_rgb, channels="RGB")
 
-    cv2.imshow("Image", img)
-
-    if cv2.waitKey(1) & 0xFF == ord('x'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+# Release resources if the stop button was pressed
+if cap:
+    cap.release()
+    cv2.destroyAllWindows()
